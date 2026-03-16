@@ -22,14 +22,25 @@ export function parseJsonlOutput(raw: string): ParsedOutput {
       const evt = JSON.parse(line);
       events.push(evt);
 
-      // Collect streamed text deltas
+      // Codex exec --json emits item.completed events with agent messages
+      if (evt.type === "item.completed" && evt.item?.type === "agent_message" && typeof evt.item.text === "string") {
+        textParts.push(evt.item.text);
+      }
+
+      // Also collect command execution output
+      if (evt.type === "item.completed" && evt.item?.type === "command_execution" && typeof evt.item.aggregated_output === "string") {
+        if (evt.item.aggregated_output.trim()) {
+          textParts.push(`[command: ${evt.item.command}]\n${evt.item.aggregated_output.trim()}`);
+        }
+      }
+
+      // Legacy: streamed text deltas (older Codex versions)
       if (evt.type === "message.output_text.delta" && typeof evt.delta === "string") {
         textParts.push(evt.delta);
       }
 
-      // Or grab the full text from the completed message
+      // Legacy: completed message (older Codex versions)
       if (evt.type === "message.completed" && evt.message?.output_text) {
-        // If we already collected deltas, prefer those. Otherwise use the full text.
         if (textParts.length === 0) {
           textParts.push(evt.message.output_text);
         }
@@ -41,7 +52,7 @@ export function parseJsonlOutput(raw: string): ParsedOutput {
   }
 
   return {
-    text: textParts.join(""),
+    text: textParts.join("\n"),
     events,
   };
 }
