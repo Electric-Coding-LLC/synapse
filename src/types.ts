@@ -80,7 +80,7 @@ export interface StatusResult {
   installed: boolean;
   version?: string;
   authenticated: boolean;
-  config?: Record<string, unknown>;
+  auth_method?: string;
   error?: string;
 }
 
