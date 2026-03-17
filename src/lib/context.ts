@@ -22,6 +22,7 @@ export async function buildPrompt(
   workingDirectory?: string,
 ): Promise<string> {
   const parts: string[] = [];
+  parts.push("$flow");
   parts.push(task);
 
   if (!relevantFiles?.length) {
