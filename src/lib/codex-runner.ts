@@ -199,7 +199,11 @@ export async function runCodex(params: ExecuteParams, onProgress?: ProgressCallb
   const filesChanged = diffSnapshots(preSnapshot, postSnapshot);
 
   const parsed = parseJsonlOutput(stdout);
-  const output = parsed.text || stdout;
+  const rawOutput = parsed.text || stdout;
+  const MAX_OUTPUT = 2000;
+  const output = rawOutput.length > MAX_OUTPUT
+    ? rawOutput.slice(0, MAX_OUTPUT) + `... (truncated, ${rawOutput.length} chars total)`
+    : rawOutput;
 
   const duration = Date.now() - start;
   const success = exitCode === 0;

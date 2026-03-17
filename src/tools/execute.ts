@@ -28,11 +28,5 @@ export async function codexExecute(params: ExecuteParams, onProgress?: ProgressC
     finished_at: finishedAt,
   }).catch(() => {});
 
-  const MAX_OUTPUT = 2000;
-  return {
-    ...result,
-    output: result.output.length > MAX_OUTPUT
-      ? result.output.slice(0, MAX_OUTPUT) + `... (truncated, ${result.output.length} chars total — full output in logs)`
-      : result.output,
-  };
+  return result;
 }
