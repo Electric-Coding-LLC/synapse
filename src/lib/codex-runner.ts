@@ -1,5 +1,6 @@
 import { parseJsonlOutput } from "./parser.ts";
 import { buildPrompt } from "./context.ts";
+import { logLive, clearLiveLog } from "./logger.ts";
 import type { ExecuteParams, ExecuteResult, FileChange } from "../types.ts";
 
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
@@ -103,6 +104,9 @@ export async function runCodex(params: ExecuteParams, onProgress?: ProgressCallb
 
   const prompt = await buildPrompt(params.task, params.relevant_files, cwd);
 
+  await clearLiveLog().catch(() => {});
+  await logLive(`Task: ${params.task.slice(0, 200)}`).catch(() => {});
+
   const preSnapshot = await snapshotWorkingTree(cwd);
 
   const args: string[] = ["codex", "exec"];
@@ -150,15 +154,23 @@ export async function runCodex(params: ExecuteParams, onProgress?: ProgressCallb
         buffer = buffer.slice(newlineIdx + 1);
         stdout += line + "\n";
 
-        if (onProgress && line.trim()) {
+        if (line.trim()) {
           try {
             const evt = JSON.parse(line);
             if (evt.type === "item.completed" && evt.item?.type === "agent_message" && evt.item.text) {
-              onProgress(`Codex: ${evt.item.text.slice(0, 200)}`);
+              const msg = `Codex: ${evt.item.text.slice(0, 200)}`;
+              onProgress?.(msg);
+              logLive(msg).catch(() => {});
             } else if (evt.type === "item.completed" && evt.item?.type === "command_execution" && evt.item.command) {
               const cmd = evt.item.command.length > 100 ? evt.item.command.slice(0, 100) + "..." : evt.item.command;
               const status = evt.item.exit_code === 0 ? "ok" : `exit ${evt.item.exit_code}`;
-              onProgress(`Codex ran: ${cmd} (${status})`);
+              const msg = `Codex ran: ${cmd} (${status})`;
+              onProgress?.(msg);
+              logLive(msg).catch(() => {});
+            } else if (evt.type === "turn.started") {
+              logLive("── turn started ──").catch(() => {});
+            } else if (evt.type === "turn.completed" && evt.usage) {
+              logLive(`── turn completed (${evt.usage.input_tokens} in, ${evt.usage.output_tokens} out) ──`).catch(() => {});
             }
           } catch {}
         }

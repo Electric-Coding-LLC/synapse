@@ -1,6 +1,6 @@
 import { join } from "path";
 import { homedir } from "os";
-import { readdir, unlink, stat } from "fs/promises";
+import { readdir, unlink, stat, appendFile, writeFile } from "fs/promises";
 import type { RunLog } from "../types.ts";
 
 const LOG_DIR = join(homedir(), ".synapse", "logs");
@@ -32,6 +32,19 @@ export async function logRun(log: RunLog): Promise<string> {
   await Bun.write(path, JSON.stringify(log, null, 2));
   pruneOldLogs().catch(() => {});
   return path;
+}
+
+const LIVE_LOG = join(LOG_DIR, "live.log");
+
+export async function logLive(message: string): Promise<void> {
+  await ensureLogDir();
+  const timestamp = new Date().toISOString().slice(11, 19);
+  await appendFile(LIVE_LOG, `[${timestamp}] ${message}\n`);
+}
+
+export async function clearLiveLog(): Promise<void> {
+  await ensureLogDir();
+  await writeFile(LIVE_LOG, "");
 }
 
 export function makeRunId(): string {
