@@ -1,6 +1,6 @@
 import { parseJsonlOutput } from "./parser.ts";
 import { buildPrompt } from "./context.ts";
-import { logLive, clearLiveLog } from "./logger.ts";
+import { logLive, startLiveLog, makeRunId } from "./logger.ts";
 import type { ExecuteParams, ExecuteResult, FileChange } from "../types.ts";
 
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
@@ -104,7 +104,8 @@ export async function runCodex(params: ExecuteParams, onProgress?: ProgressCallb
 
   const prompt = await buildPrompt(params.task, params.relevant_files, cwd);
 
-  await clearLiveLog().catch(() => {});
+  const liveRunId = makeRunId();
+  await startLiveLog(liveRunId).catch(() => {});
   await logLive(`Task: ${params.task.slice(0, 200)}`).catch(() => {});
 
   const preSnapshot = await snapshotWorkingTree(cwd);
