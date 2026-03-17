@@ -6,31 +6,40 @@ const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 const DEFAULT_SANDBOX = "workspace-write";
 
 /**
- * Detect file changes by comparing `git status` before and after execution.
+ * Snapshot the working tree: file hashes for tracked files + set of untracked files.
+ * Used to diff before/after Codex execution so we only report what Codex changed.
  */
-async function detectFileChanges(cwd: string): Promise<FileChange[]> {
+async function snapshotWorkingTree(cwd: string): Promise<{ tracked: Map<string, string>; untracked: Set<string> }> {
+  const tracked = new Map<string, string>();
+  const untracked = new Set<string>();
+
   try {
-    const proc = Bun.spawn(["git", "diff", "--name-status", "HEAD"], {
+    const hashProc = Bun.spawn(["git", "ls-files", "-s"], {
       cwd,
       stdout: "pipe",
       stderr: "pipe",
     });
-    const out = await new Response(proc.stdout).text();
-    await proc.exited;
+    const hashOut = await new Response(hashProc.stdout).text();
+    await hashProc.exited;
 
-    const changes: FileChange[] = [];
-    for (const line of out.trim().split("\n")) {
+    for (const line of hashOut.trim().split("\n")) {
       if (!line.trim()) continue;
-      const [statusChar, ...pathParts] = line.split("\t");
-      const path = pathParts.join("\t");
-      const status =
-        statusChar === "A" ? "added" :
-        statusChar === "D" ? "deleted" :
-        "modified";
-      changes.push({ path, status });
+      const match = line.match(/^\d+\s+([a-f0-9]+)\s+\d+\t(.+)$/);
+      if (match) tracked.set(match[2], match[1]);
     }
 
-    // Also pick up untracked files
+    const diffProc = Bun.spawn(["git", "diff", "--name-only"], {
+      cwd,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const diffOut = await new Response(diffProc.stdout).text();
+    await diffProc.exited;
+
+    for (const file of diffOut.trim().split("\n")) {
+      if (file.trim()) tracked.set(file, `dirty:${file}`);
+    }
+
     const untrackedProc = Bun.spawn(["git", "ls-files", "--others", "--exclude-standard"], {
       cwd,
       stdout: "pipe",
@@ -40,16 +49,44 @@ async function detectFileChanges(cwd: string): Promise<FileChange[]> {
     await untrackedProc.exited;
 
     for (const line of untrackedOut.trim().split("\n")) {
-      if (!line.trim()) continue;
-      if (!changes.some((c) => c.path === line)) {
-        changes.push({ path: line, status: "added" });
-      }
+      if (line.trim()) untracked.add(line);
     }
+  } catch {}
 
-    return changes;
-  } catch {
-    return [];
+  return { tracked, untracked };
+}
+
+/**
+ * Diff two snapshots to find what changed between them.
+ */
+export function diffSnapshots(
+  before: { tracked: Map<string, string>; untracked: Set<string> },
+  after: { tracked: Map<string, string>; untracked: Set<string> },
+): FileChange[] {
+  const changes: FileChange[] = [];
+
+  for (const [path, hash] of after.tracked) {
+    const prevHash = before.tracked.get(path);
+    if (prevHash === undefined) {
+      changes.push({ path, status: "added" });
+    } else if (prevHash !== hash) {
+      changes.push({ path, status: "modified" });
+    }
   }
+
+  for (const path of before.tracked.keys()) {
+    if (!after.tracked.has(path)) {
+      changes.push({ path, status: "deleted" });
+    }
+  }
+
+  for (const path of after.untracked) {
+    if (!before.untracked.has(path)) {
+      changes.push({ path, status: "added" });
+    }
+  }
+
+  return changes;
 }
 
 /**
@@ -64,8 +101,7 @@ export async function runCodex(params: ExecuteParams): Promise<ExecuteResult> {
 
   const prompt = await buildPrompt(params.task, params.relevant_files, cwd);
 
-  // Snapshot git state before (to diff later)
-  const preChanges = await detectFileChanges(cwd);
+  const preSnapshot = await snapshotWorkingTree(cwd);
 
   const args: string[] = ["codex", "exec"];
 
@@ -120,11 +156,8 @@ export async function runCodex(params: ExecuteParams): Promise<ExecuteResult> {
     };
   }
 
-  const postChanges = await detectFileChanges(cwd);
-
-  // Find new changes (files that changed after but not before)
-  const preSet = new Set(preChanges.map((c) => `${c.status}:${c.path}`));
-  const newChanges = postChanges.filter((c) => !preSet.has(`${c.status}:${c.path}`));
+  const postSnapshot = await snapshotWorkingTree(cwd);
+  const filesChanged = diffSnapshots(preSnapshot, postSnapshot);
 
   const parsed = parseJsonlOutput(stdout);
   const output = parsed.text || stdout;
@@ -135,7 +168,7 @@ export async function runCodex(params: ExecuteParams): Promise<ExecuteResult> {
   return {
     success,
     output: success ? output : `${output}\n\nSTDERR:\n${stderr}`.trim(),
-    files_changed: newChanges.length > 0 ? newChanges : postChanges,
+    files_changed: filesChanged,
     error: success ? undefined : `Exit code ${exitCode}: ${stderr}`.trim(),
     duration_ms: duration,
     exit_code: exitCode,
