@@ -1,5 +1,6 @@
 import { runCodex, runValidation } from "../lib/codex-runner.ts";
 import { logRun, makeRunId } from "../lib/logger.ts";
+import { findReadySteps, validateDependencies } from "../lib/graph.ts";
 import type { PlanParams, PlanResult, StepResult } from "../types.ts";
 
 export async function codexExecutePlan(params: PlanParams): Promise<PlanResult> {
@@ -103,26 +104,25 @@ export async function codexExecutePlan(params: PlanParams): Promise<PlanResult> 
     };
   }
 
-  // Build dependency graph and execute
+  const validation = validateDependencies(plan);
+  if (!validation.valid) {
+    return {
+      success: false,
+      steps: [],
+      total_duration_ms: 0,
+      summary: `Invalid plan: ${validation.errors.join("; ")}`,
+    };
+  }
+
   if (parallel) {
-    // Topological execution — run steps whose dependencies are met
     const pending = new Set(plan.map((s) => s.id));
     const stepMap = new Map(plan.map((s) => [s.id, s]));
 
     while (pending.size > 0 && !aborted) {
-      // Find steps whose dependencies are all completed
-      const ready: typeof plan = [];
-      for (const id of pending) {
-        const step = stepMap.get(id)!;
-        const deps = step.depends_on ?? [];
-        if (deps.every((d) => completed.has(d))) {
-          ready.push(step);
-        }
-      }
+      const { ready, deadlocked } = findReadySteps(plan, pending, completed);
 
-      if (ready.length === 0) {
-        // Deadlock — remaining steps have unmet dependencies
-        for (const id of pending) {
+      if (deadlocked.length > 0) {
+        for (const id of deadlocked) {
           stepResults.set(id, {
             step_id: id,
             status: "skipped",
@@ -134,8 +134,8 @@ export async function codexExecutePlan(params: PlanParams): Promise<PlanResult> 
         break;
       }
 
-      // Execute ready steps concurrently
-      const results = await Promise.all(ready.map(executeStep));
+      const readySteps = ready.map((id) => stepMap.get(id)!);
+      const results = await Promise.all(readySteps.map(executeStep));
 
       for (const r of results) {
         stepResults.set(r.step_id, r);
