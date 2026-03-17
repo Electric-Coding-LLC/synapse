@@ -41,15 +41,20 @@ server.tool(
     sandbox: z.string().optional().describe("Sandbox mode (default: workspace-write)"),
   },
   async ({ task, working_directory, relevant_files, model, timeout_ms, full_auto, sandbox }) => {
-    const result = await codexExecute({
-      task,
-      working_directory,
-      relevant_files,
-      model,
-      timeout_ms,
-      full_auto,
-      sandbox,
-    });
+    const result = await codexExecute(
+      {
+        task,
+        working_directory,
+        relevant_files,
+        model,
+        timeout_ms,
+        full_auto,
+        sandbox,
+      },
+      (message) => {
+        server.sendLoggingMessage({ level: "info", data: message }).catch(() => {});
+      },
+    );
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
     };

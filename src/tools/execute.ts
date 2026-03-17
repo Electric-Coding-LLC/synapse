@@ -4,14 +4,26 @@ import type { ExecuteParams, ExecuteResult } from "../types.ts";
 
 const MAX_RETRIES = 1;
 
-export async function codexExecute(params: ExecuteParams): Promise<ExecuteResult> {
+export type ProgressCallback = (message: string) => void;
+
+export async function codexExecute(params: ExecuteParams, onProgress?: ProgressCallback): Promise<ExecuteResult> {
   const runId = makeRunId();
   const startedAt = new Date().toISOString();
 
-  let result = await runCodex(params);
+  onProgress?.(`Executing: ${params.task.slice(0, 80)}`);
+  const execStart = Date.now();
+  const heartbeat = onProgress
+    ? setInterval(() => {
+        const elapsed = Math.round((Date.now() - execStart) / 1000);
+        onProgress(`Codex working... (${elapsed}s elapsed)`);
+      }, 15_000)
+    : undefined;
 
-  // Retry once on failure
+  let result = await runCodex(params);
+  if (heartbeat) clearInterval(heartbeat);
+
   if (!result.success && MAX_RETRIES > 0) {
+    onProgress?.("Execution failed, retrying...");
     result = await runCodex(params);
   }
 
