@@ -27,13 +27,10 @@ export async function codexExecutePlan(params: PlanParams, onProgress?: Progress
       };
     }
 
-    onProgress?.(`Step "${step.id}" started: ${step.task.slice(0, 80)}`);
-    const stepStart = Date.now();
-    const heartbeat = onProgress
-      ? setInterval(() => {
-          const elapsed = Math.round((Date.now() - stepStart) / 1000);
-          onProgress(`Step "${step.id}" running... (${elapsed}s elapsed)`);
-        }, 15_000)
+    onProgress?.(`[${step.id}] Starting: ${step.task.slice(0, 80)}`);
+
+    const stepProgress = onProgress
+      ? (msg: string) => onProgress(`[${step.id}] ${msg}`)
       : undefined;
 
     const result = await runCodex({
@@ -43,20 +40,12 @@ export async function codexExecutePlan(params: PlanParams, onProgress?: Progress
       model,
       timeout_ms,
       full_auto: true,
-    });
-    if (heartbeat) clearInterval(heartbeat);
+    }, stepProgress);
 
     let stepResult: StepResult;
 
     if (!result.success) {
-      onProgress?.(`Step "${step.id}" failed, retrying...`);
-      const retryStart = Date.now();
-      const retryHeartbeat = onProgress
-        ? setInterval(() => {
-            const elapsed = Math.round((Date.now() - retryStart) / 1000);
-            onProgress(`Step "${step.id}" retry running... (${elapsed}s elapsed)`);
-          }, 15_000)
-        : undefined;
+      onProgress?.(`[${step.id}] Failed, retrying...`);
 
       const retry = await runCodex({
         task: step.task,
@@ -65,8 +54,7 @@ export async function codexExecutePlan(params: PlanParams, onProgress?: Progress
         model,
         timeout_ms,
         full_auto: true,
-      });
-      if (retryHeartbeat) clearInterval(retryHeartbeat);
+      }, stepProgress);
 
       if (!retry.success) {
         stepResult = {

@@ -92,7 +92,9 @@ export function diffSnapshots(
 /**
  * Run a single coding task via `codex exec`.
  */
-export async function runCodex(params: ExecuteParams): Promise<ExecuteResult> {
+export type ProgressCallback = (message: string) => void;
+
+export async function runCodex(params: ExecuteParams, onProgress?: ProgressCallback): Promise<ExecuteResult> {
   const start = Date.now();
   const cwd = params.working_directory || process.cwd();
   const timeout = params.timeout_ms ?? DEFAULT_TIMEOUT_MS;
@@ -129,21 +131,46 @@ export async function runCodex(params: ExecuteParams): Promise<ExecuteResult> {
       env: { ...process.env },
     });
 
-    // Set up timeout
     const timeoutId = setTimeout(() => {
       proc.kill("SIGTERM");
     }, timeout);
 
-    const [outText, errText] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-    ]);
+    const stderrPromise = new Response(proc.stderr).text();
 
+    // Stream stdout line-by-line for real-time progress
+    let buffer = "";
+    for await (const chunk of proc.stdout) {
+      const text = new TextDecoder().decode(chunk);
+      buffer += text;
+
+      // Process complete lines
+      let newlineIdx;
+      while ((newlineIdx = buffer.indexOf("\n")) !== -1) {
+        const line = buffer.slice(0, newlineIdx);
+        buffer = buffer.slice(newlineIdx + 1);
+        stdout += line + "\n";
+
+        if (onProgress && line.trim()) {
+          try {
+            const evt = JSON.parse(line);
+            if (evt.type === "item.completed" && evt.item?.type === "agent_message" && evt.item.text) {
+              onProgress(`Codex: ${evt.item.text.slice(0, 200)}`);
+            } else if (evt.type === "item.completed" && evt.item?.type === "command_execution" && evt.item.command) {
+              const cmd = evt.item.command.length > 100 ? evt.item.command.slice(0, 100) + "..." : evt.item.command;
+              const status = evt.item.exit_code === 0 ? "ok" : `exit ${evt.item.exit_code}`;
+              onProgress(`Codex ran: ${cmd} (${status})`);
+            }
+          } catch {}
+        }
+      }
+    }
+    if (buffer.trim()) {
+      stdout += buffer;
+    }
+
+    stderr = await stderrPromise;
     exitCode = await proc.exited;
     clearTimeout(timeoutId);
-
-    stdout = outText;
-    stderr = errText;
   } catch (err: unknown) {
     const duration = Date.now() - start;
     return {

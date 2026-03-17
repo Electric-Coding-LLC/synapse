@@ -10,21 +10,11 @@ export async function codexExecute(params: ExecuteParams, onProgress?: ProgressC
   const runId = makeRunId();
   const startedAt = new Date().toISOString();
 
-  onProgress?.(`Executing: ${params.task.slice(0, 80)}`);
-  const execStart = Date.now();
-  const heartbeat = onProgress
-    ? setInterval(() => {
-        const elapsed = Math.round((Date.now() - execStart) / 1000);
-        onProgress(`Codex working... (${elapsed}s elapsed)`);
-      }, 15_000)
-    : undefined;
-
-  let result = await runCodex(params);
-  if (heartbeat) clearInterval(heartbeat);
+  let result = await runCodex(params, onProgress);
 
   if (!result.success && MAX_RETRIES > 0) {
     onProgress?.("Execution failed, retrying...");
-    result = await runCodex(params);
+    result = await runCodex(params, onProgress);
   }
 
   const finishedAt = new Date().toISOString();
