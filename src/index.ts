@@ -78,14 +78,19 @@ server.tool(
     timeout_ms: z.number().optional().describe("Per-step timeout in ms"),
   },
   async ({ plan, working_directory, model, parallel, stop_on_failure, timeout_ms }) => {
-    const result = await codexExecutePlan({
-      plan,
-      working_directory,
-      model,
-      parallel,
-      stop_on_failure,
-      timeout_ms,
-    });
+    const result = await codexExecutePlan(
+      {
+        plan,
+        working_directory,
+        model,
+        parallel,
+        stop_on_failure,
+        timeout_ms,
+      },
+      (message) => {
+        server.sendLoggingMessage({ level: "info", data: message }).catch(() => {});
+      },
+    );
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
     };

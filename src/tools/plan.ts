@@ -3,7 +3,9 @@ import { logRun, makeRunId } from "../lib/logger.ts";
 import { findReadySteps, validateDependencies } from "../lib/graph.ts";
 import type { PlanParams, PlanResult, StepResult } from "../types.ts";
 
-export async function codexExecutePlan(params: PlanParams): Promise<PlanResult> {
+export type ProgressCallback = (message: string) => void;
+
+export async function codexExecutePlan(params: PlanParams, onProgress?: ProgressCallback): Promise<PlanResult> {
   const runId = makeRunId();
   const startedAt = new Date().toISOString();
   const planStart = Date.now();
@@ -25,6 +27,8 @@ export async function codexExecutePlan(params: PlanParams): Promise<PlanResult> 
       };
     }
 
+    onProgress?.(`Step "${step.id}" started: ${step.task.slice(0, 80)}`);
+
     const result = await runCodex({
       task: step.task,
       working_directory,
@@ -37,7 +41,7 @@ export async function codexExecutePlan(params: PlanParams): Promise<PlanResult> 
     let stepResult: StepResult;
 
     if (!result.success) {
-      // Retry once
+      onProgress?.(`Step "${step.id}" failed, retrying...`);
       const retry = await runCodex({
         task: step.task,
         working_directory,
@@ -94,6 +98,8 @@ export async function codexExecutePlan(params: PlanParams): Promise<PlanResult> 
         validation_output: val.output,
       };
     }
+
+    onProgress?.(`Step "${step.id}" succeeded (${(result.duration_ms / 1000).toFixed(1)}s)`);
 
     return {
       step_id: step.id,
