@@ -19,7 +19,6 @@ export async function codexExecute(params: ExecuteParams, onProgress?: ProgressC
 
   const finishedAt = new Date().toISOString();
 
-  // Log the run
   await logRun({
     id: runId,
     tool: "codex_execute",
@@ -27,7 +26,13 @@ export async function codexExecute(params: ExecuteParams, onProgress?: ProgressC
     result,
     started_at: startedAt,
     finished_at: finishedAt,
-  }).catch(() => {}); // don't fail the tool if logging fails
+  }).catch(() => {});
 
-  return result;
+  const MAX_OUTPUT = 2000;
+  return {
+    ...result,
+    output: result.output.length > MAX_OUTPUT
+      ? result.output.slice(0, MAX_OUTPUT) + `... (truncated, ${result.output.length} chars total — full output in logs)`
+      : result.output,
+  };
 }

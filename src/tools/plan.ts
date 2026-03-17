@@ -188,7 +188,7 @@ export async function codexExecutePlan(params: PlanParams, onProgress?: Progress
   const failed = steps.filter((s) => s.status === "failed" || s.status === "validation_failed").length;
   const skipped = steps.filter((s) => s.status === "skipped").length;
 
-  const result: PlanResult = {
+  const fullResult: PlanResult = {
     success: allSuccess,
     steps,
     total_duration_ms: totalDuration,
@@ -200,10 +200,24 @@ export async function codexExecutePlan(params: PlanParams, onProgress?: Progress
     id: runId,
     tool: "codex_execute_plan",
     params: params as unknown as Record<string, unknown>,
-    result,
+    result: fullResult,
     started_at: startedAt,
     finished_at: finishedAt,
   }).catch(() => {});
 
-  return result;
+  const MAX_STEP_OUTPUT = 500;
+  const truncatedSteps = steps.map((s) => ({
+    ...s,
+    output: s.output.length > MAX_STEP_OUTPUT
+      ? s.output.slice(0, MAX_STEP_OUTPUT) + `... (truncated, ${s.output.length} chars total)`
+      : s.output,
+    validation_output: s.validation_output && s.validation_output.length > MAX_STEP_OUTPUT
+      ? s.validation_output.slice(0, MAX_STEP_OUTPUT) + "... (truncated)"
+      : s.validation_output,
+  }));
+
+  return {
+    ...fullResult,
+    steps: truncatedSteps,
+  };
 }
