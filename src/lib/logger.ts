@@ -4,7 +4,7 @@ import { readdir, unlink, stat } from "fs/promises";
 import type { RunLog } from "../types.ts";
 
 const LOG_DIR = join(homedir(), ".synapse", "logs");
-const MAX_LOG_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const MAX_LOG_AGE_MS = 24 * 60 * 60 * 1000;
 
 async function ensureLogDir(): Promise<void> {
   await Bun.write(join(LOG_DIR, ".keep"), "");
